@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "app": "npm run build && python app.py",
-    "app:dev": "python app.py --dev"
+    "app:dev": "python app.py --dev",
+    "exe": "npm run build && python -m PyInstaller --noconfirm --clean --onefile --windowed --name Gastos --icon ../assets/icon.ico --add-data \"../dist;dist\" --distpath build/exe --workpath build/work --specpath build app.py"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",

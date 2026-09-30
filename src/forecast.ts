@@ -18,6 +18,7 @@ import { paydaysIn } from "./income";
 
 const DAY = 86_400_000;
 const WINDOW_DAYS = 90; // historial que se usa para estimar el ritmo
+const MIN_DAYS = 30; // mínimo de días sobre los que se reparte el ritmo
 const HALF_LIFE_DAYS = 30; // un día de hace 30 días pesa la mitad que hoy
 const Z80 = 1.2816; // intervalo del 80%
 
@@ -67,8 +68,9 @@ const sum = (items: { amountCents: number }[]) =>
 
 /**
  * Proyección sencilla, explicable y prudente:
- * - Ritmo diario = media ponderada (decaimiento exponencial) de los últimos 90 días del
- *   historial, sin gastos fijos (esos se cuentan aparte).
+ * - Ritmo diario = media ponderada de los últimos 90 días del historial (mínimo 30; lo
+ *   anterior al último mes pierde peso con decaimiento exponencial), sin gastos fijos
+ *   (esos se cuentan aparte).
  * - Gastos fijos: se cuentan por adelantado, una vez al mes, desde su siguiente fecha de
  *   pago; no si ese mes ya se pagó (el historial manda) o se omitió.
  * - Ingreso fijo: cuenta en sus próximos días de pago. Lo ya cobrado está en el historial.
@@ -107,7 +109,12 @@ export function forecast(
   const first = past.length
     ? Math.min(...past.map((item) => dayNumber(item.date)))
     : today;
-  const days = Math.min(WINDOW_DAYS, today - first + 1);
+  // Con poco historial el ritmo se reparte en al menos un mes: una sola compra grande
+  // no debe leerse como lo que gastas cada día.
+  const days = Math.min(
+    WINDOW_DAYS,
+    Math.max(MIN_DAYS, today - first + 1),
+  );
   const daily = new Array<number>(days).fill(0);
   for (const item of past) {
     const age = today - dayNumber(item.date);
@@ -115,11 +122,15 @@ export function forecast(
       daily[age] += item.amountCents;
   }
 
+  // El mes más reciente pesa parejo (con poco historial es un promedio simple); lo más
+  // antiguo pierde peso con la vida media.
+  const weightOf = (age: number) =>
+    0.5 ** (Math.max(0, age - MIN_DAYS + 1) / HALF_LIFE_DAYS);
   let weights = 0;
   let weightsSquared = 0;
   let weighted = 0;
   daily.forEach((amount, age) => {
-    const weight = 0.5 ** (age / HALF_LIFE_DAYS);
+    const weight = weightOf(age);
     weights += weight;
     weightsSquared += weight * weight;
     weighted += weight * amount;
@@ -128,7 +139,7 @@ export function forecast(
   const variance =
     daily.reduce(
       (total, amount, age) =>
-        total + 0.5 ** (age / HALF_LIFE_DAYS) * (amount - rate) ** 2,
+        total + weightOf(age) * (amount - rate) ** 2,
       0,
     ) / weights;
   const effectiveDays = (weights * weights) / weightsSquared;
